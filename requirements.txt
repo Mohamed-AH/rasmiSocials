@@ -1,0 +1,6 @@
+pillow>=10.0
+pandas
+openpyxl
+arabic-reshaper
+python-bidi
+python-dotenv
