@@ -63,12 +63,24 @@ def get_font(size: int) -> ImageFont.FreeTypeFont:
 
 # ── Arabic helpers ────────────────────────────────────────────────────────────
 
+# Unicode bidi mirroring pairs — python-bidi omits rule L4 (bracket mirroring)
+# so we apply it manually for RTL output.
+_MIRROR = str.maketrans('()[]{}⟨⟩⌈⌉⌊⌋', ')(][}{⟩⟨⌉⌈⌋⌊')
+
+
 def ar(text) -> str:
-    """Reshape + bidi-reorder Arabic text for correct Pillow rendering."""
+    """
+    Reshape Arabic text into positional forms, reorder for LTR Pillow rendering,
+    and apply Unicode bidi mirror-glyph substitution (brackets etc.) that
+    python-bidi's get_display() omits.
+    """
     if not text or not ARABIC_SUPPORT:
         return str(text or "")
     try:
-        return get_display(arabic_reshaper.reshape(str(text)))
+        reshaped  = arabic_reshaper.reshape(str(text))
+        displayed = get_display(reshaped, base_dir='R')
+        # Apply bracket mirroring (UBA rule L4) manually
+        return displayed.translate(_MIRROR)
     except Exception:
         return str(text)
 
