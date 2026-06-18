@@ -8,8 +8,39 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import pandas as pd
 from pipeline.config import (
     EXCEL_FILE, TRANSCRIPTS_DIR, METADATA_DIR,
-    CLIP_DURATION_MIN, CLIP_DURATION_MAX, CLIPS_PER_LECTURE,
+    CLIP_DURATION_MIN, CLIP_DURATION_MAX, CLIPS_PER_LECTURE, ROOT_DIR,
 )
+
+MANUAL_CLIPS_CSV = os.path.join(ROOT_DIR, "inputs", "manual_clips.csv")
+
+
+def _load_manual_clips():
+    """Return dict {sno: [ {clip, start_ms, end_ms, label}, … ]} or {} if file absent."""
+    if not os.path.exists(MANUAL_CLIPS_CSV):
+        return {}
+    df = pd.read_csv(MANUAL_CLIPS_CSV)
+    required = {"sno", "clip", "start_sec", "end_sec"}
+    missing = required - set(df.columns)
+    if missing:
+        print(f"[WARN] manual_clips.csv is missing columns: {missing}. Ignoring file.")
+        return {}
+    overrides = {}
+    for _, row in df.iterrows():
+        sno = int(row["sno"])
+        entry = {
+            "rank":         int(row["clip"]),
+            "start_ms":     int(float(row["start_sec"]) * 1000),
+            "end_ms":       int(float(row["end_sec"])   * 1000),
+            "duration_sec": round(float(row["end_sec"]) - float(row["start_sec"]), 1),
+            "score":        None,   # manual — no score
+            "label":        str(row.get("label", "")).strip(),
+            "source":       "manual",
+        }
+        overrides.setdefault(sno, []).append(entry)
+    # Sort each lecture's clips by rank
+    for sno in overrides:
+        overrides[sno].sort(key=lambda c: c["rank"])
+    return overrides
 
 # Engagement signal word sets
 _HADITH_SIGNALS     = ["قال النبي", "رسول الله", "صلى الله عليه", "حدثنا", "روى", "أخرجه"]
@@ -53,12 +84,21 @@ def _overlaps(a_start, a_end, b_start, b_end, threshold=0.5):
     return shorter > 0 and (overlap / shorter) > threshold
 
 
-def extract_clips(sno, transcript_df):
+def extract_clips(sno, transcript_df, manual_overrides=None):
     """
-    Slide windows of various durations over the transcript, score each,
-    return top CLIPS_PER_LECTURE non-overlapping clips.
+    If manual_overrides contains entries for this sno, use them directly.
+    Otherwise slide windows over the transcript, score each, and return
+    the top CLIPS_PER_LECTURE non-overlapping clips.
     """
     os.makedirs(METADATA_DIR, exist_ok=True)
+
+    if manual_overrides and sno in manual_overrides:
+        selected = manual_overrides[sno]
+        out_path = os.path.join(METADATA_DIR, f"{sno}_clips.json")
+        with open(out_path, "w", encoding="utf-8") as f:
+            json.dump(selected, f, ensure_ascii=False, indent=2)
+        print(f"  ✓ {len(selected)} clips (manual) → {out_path}")
+        return selected
 
     rows = transcript_df.reset_index(drop=True)
     candidates = []
@@ -122,6 +162,10 @@ def extract_clips(sno, transcript_df):
 
 
 def extract_all_clips(excel_df):
+    manual_overrides = _load_manual_clips()
+    if manual_overrides:
+        print(f"  [INFO] manual_clips.csv loaded — {len(manual_overrides)} lecture(s) use manual timecodes.")
+
     results = {}
     total = len(excel_df)
     for i, (_, row) in enumerate(excel_df.iterrows(), 1):
@@ -133,7 +177,7 @@ def extract_all_clips(excel_df):
             continue
         print(f"[{i}/{total}] Extracting clips for S.No {sno} …")
         df_t = pd.read_csv(csv_path)
-        clips = extract_clips(sno, df_t)
+        clips = extract_clips(sno, df_t, manual_overrides=manual_overrides)
         results[sno] = clips
     return results
 
