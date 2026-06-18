@@ -11,11 +11,10 @@ from pipeline.config import EXCEL_FILE, IMAGES_DIR, CONTRAST_THRESHOLD
 
 try:
     import arabic_reshaper
-    from bidi.algorithm import get_display
     ARABIC_SUPPORT = True
 except ImportError:
     ARABIC_SUPPORT = False
-    print("[WARN] arabic_reshaper / python-bidi not installed.")
+    print("[WARN] arabic_reshaper not installed. Run: pip install arabic-reshaper")
 
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FONTS_DIR = os.path.join(ROOT_DIR, "fonts")
@@ -63,24 +62,13 @@ def get_font(size: int) -> ImageFont.FreeTypeFont:
 
 # ── Arabic helpers ────────────────────────────────────────────────────────────
 
-# Unicode bidi mirroring pairs — python-bidi omits rule L4 (bracket mirroring)
-# so we apply it manually for RTL output.
-_MIRROR = str.maketrans('()[]{}⟨⟩⌈⌉⌊⌋', ')(][}{⟩⟨⌉⌈⌋⌊')
-
 
 def ar(text) -> str:
-    """
-    Reshape Arabic text into positional forms, reorder for LTR Pillow rendering,
-    and apply Unicode bidi mirror-glyph substitution (brackets etc.) that
-    python-bidi's get_display() omits.
-    """
+    """Reshape Arabic text into positional (connected) forms for Pillow rendering."""
     if not text or not ARABIC_SUPPORT:
         return str(text or "")
     try:
-        reshaped  = arabic_reshaper.reshape(str(text))
-        displayed = get_display(reshaped, base_dir='R')
-        # Apply bracket mirroring (UBA rule L4) manually
-        return displayed.translate(_MIRROR)
+        return arabic_reshaper.reshape(str(text))
     except Exception:
         return str(text)
 
